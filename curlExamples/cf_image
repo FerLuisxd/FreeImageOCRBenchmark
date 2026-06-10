@@ -1,0 +1,23 @@
+curl --request POST \
+  --url https: //api.cloudflare.com/client/v4/accounts/accountId/ai/run/@cf/mistralai/mistral-small-3.1-24b-instruct \
+  --header 'authorization: Bearer ' \
+  --header 'content-type: application/json' \
+  --data '{
+    "messages": [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": "data:image/jpeg;base64,baseIMageHERE"
+                    }
+                },
+                {
+                    "type": "text",
+                    "text": "Return only the names shown in this image."
+                }
+            ]
+        }
+    ]
+}'

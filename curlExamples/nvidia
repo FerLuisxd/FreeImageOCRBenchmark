@@ -1,0 +1,28 @@
+curl --request POST \
+  --url https: //integrate.api.nvidia.com/v1/chat/completions \
+  --header 'authorization: Bearer $NVIDIA_API_KEY' \
+  --header 'content-type: application/json' \
+  --data '{
+  "model": "meta/llama-3.2-11b-vision-instruct",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Return only the names of the players shown in this image, one per line."
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/png;base64,BASE64_HERE"
+          }
+        }
+      ]
+    }
+  ],
+  "max_tokens": 512,
+  "temperature": 0.2,
+  "top_p": 0.7,
+  "stream": false
+}'

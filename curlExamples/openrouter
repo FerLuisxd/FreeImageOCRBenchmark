@@ -1,0 +1,27 @@
+curl --request POST \
+  --url https: //openrouter.ai/api/v1/chat/completions \
+  --header 'authorization: Bearer sk-or-v1-' \
+  --header 'content-type: application/json' \
+  --data '{
+  "model": "nex-agi/nex-n2-pro:free",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "What is in this image?"
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "urlhere"
+          }
+        }
+      ]
+    }
+  ],
+  "reasoning": {
+    "enabled": false
+  }
+}'

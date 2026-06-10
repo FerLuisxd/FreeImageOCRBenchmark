@@ -1,0 +1,8 @@
+{
+  "name": "benchmark-models",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "dotenv": "^17.4.2"
+  }
+}

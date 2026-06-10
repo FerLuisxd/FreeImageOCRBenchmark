@@ -1,0 +1,27 @@
+curl --request POST \
+  --url https: //openrouter.ai/api/v1/chat/completions \
+  --header 'authorization: Bearer sk-or-v1-' \
+  --header 'content-type: application/json' \
+  --data '{
+  "model": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "What is in this image?"
+        },
+        {
+          "type": "image_url",
+          "image_url": {
+            "url": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ..."
+          }
+        }
+      ]
+    }
+  ],
+  "reasoning": {
+    "enabled": true
+  }
+}'

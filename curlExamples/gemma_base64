@@ -1,0 +1,20 @@
+curl --request POST \
+  --url 'https://generativelanguage.googleapis.com/v1beta/models/gemma-4-26b-a4b-it:generateContent?key=' \
+  --header 'content-type: application/json' \
+  --data '{
+  "contents": [
+    {
+      "parts": [
+        {
+          "inlineData": {
+            "mimeType": "image/png",
+            "data": ""
+            }
+        },
+        {
+          "text": "what is this image"
+        }
+      ]
+    }
+  ]
+}'
