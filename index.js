@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ATTEMPTS = 2;
-const PROMPT = 'Return only the names of the players shown in this image, one per line. No extra text. Do not repeat names';
+const PROMPT = 'Return only the names of the players in the lobby/party shown in this image, one per line. No extra text. Do not repeat names';
 
 const PROVIDERS = [
     {
@@ -17,14 +17,14 @@ const PROVIDERS = [
             'nvidia/nemotron-nano-12b-v2-vl:free',
             'nex-agi/nex-n2-pro:free',
         ],
-        call: callOpenRouter,
+        call: (model, test) => callOpenRouter(model, test),
     },
     {
         name: 'Google AI Studio',
         models: [
             'gemma-4-26b-a4b-it'
         ],
-        call: callGoogleAI,
+        call: (model, test) => callGoogleAI(model, test),
     },
     {
         name: 'Cloudflare',
@@ -33,21 +33,21 @@ const PROVIDERS = [
             '@cf/meta/llama-4-scout-17b-16e-instruct', // vision
             // '@cf/google/gemma-4-26b-a4b-it',              // vision
         ],
-        call: callCloudflare,
+        call: (model, test) => callCloudflare(model, test),
     },
     {
         name: 'Groq (base64)',
         models: [
             'meta-llama/llama-4-scout-17b-16e-instruct',
         ],
-        call: (model) => callGroq(model, imageDataUrl),
+        call: (model, test) => callGroq(model, test.imageDataUrl),
     },
     {
         name: 'Groq (url)',
         models: [
             'meta-llama/llama-4-scout-17b-16e-instruct',
         ],
-        call: (model) => callGroq(model, process.env.IMAGE_URL),
+        call: (model, test) => callGroq(model, test.imageUrl),
     },
     {
         name: 'NVIDIA (base64)',
@@ -55,7 +55,7 @@ const PROVIDERS = [
             'moonshotai/kimi-k2.6',
             'meta/llama-4-maverick-17b-128e-instruct',
         ],
-        call: (model) => callNvidia(model, imageDataUrl),
+        call: (model, test) => callNvidia(model, test.imageDataUrl),
     },
     {
         name: 'NVIDIA (url)',
@@ -63,7 +63,7 @@ const PROVIDERS = [
             'moonshotai/kimi-k2.6',
             'meta/llama-4-maverick-17b-128e-instruct',
         ],
-        call: (model) => callNvidia(model, process.env.IMAGE_URL),
+        call: (model, test) => callNvidia(model, test.imageUrl),
     },
     {
         name: 'Ollama Cloud',
@@ -72,29 +72,68 @@ const PROVIDERS = [
             'minimax-m3:cloud',
             'ministral-3:3b-cloud',
             'ministral-3:8b-cloud',
-            'ministral-3:14b-cloud'
+            'ministral-3:14b-cloud',
         ],
-        call: callOllamaCloud,
+        call: (model, test) => callOllamaCloud(model, test),
     },
 ];
 
-// ─── Image & Ground Truth ─────────────────────────────────────────────────────
+// ─── Load Tests ───────────────────────────────────────────────────────────────
+// Each test is a pair of files in image_tests/:
+//   <name>.png  (or .jpg / .jpeg / .webp)  ← image
+//   <name>.txt                              ← one ground-truth name per line
+//
+// Optional image URLs are read from .env as IMAGE_URL_1, IMAGE_URL_2, …
+// matched by the alphabetical order of the discovered image files.
 
-const imageBase64 = fs.readFileSync(path.join(__dirname, 'aram.png')).toString('base64');
-const imageMime = 'image/png';
-const imageDataUrl = `data:${imageMime};base64,${imageBase64}`;
+const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp']);
+const MIME_MAP = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' };
 
-const groundTruth = fs
-    .readFileSync(path.join(__dirname, 'response.txt'), 'utf8')
-    .split(/\r?\n/)
-    .map(l => l.trim())
-    .filter(Boolean)
-    .map(n => n.toLowerCase());
+function loadTests() {
+    const testsDir = path.join(__dirname, 'image_tests');
+    const files = fs.readdirSync(testsDir).sort();
 
-// Warn early if IMAGE_URL is missing (needed for Groq URL variant)
-if (!process.env.IMAGE_URL) {
-    console.warn('⚠  IMAGE_URL not set in .env — Groq (url) provider will fail.');
+    const imageFiles = files.filter(f => IMAGE_EXTS.has(path.extname(f).toLowerCase()));
+
+    if (imageFiles.length === 0) {
+        throw new Error('No image files found in image_tests/. Add at least one image and its matching .txt ground truth.');
+    }
+
+    return imageFiles.map((imgFile) => {
+        const stem = path.basename(imgFile, path.extname(imgFile));
+        const ext = path.extname(imgFile).toLowerCase();
+        const mime = MIME_MAP[ext] ?? 'image/png';
+        const imgPath = path.join(testsDir, imgFile);
+        const txtPath = path.join(testsDir, `${stem}.txt`);
+
+        if (!fs.existsSync(txtPath)) {
+            throw new Error(`Missing ground truth file: image_tests/${stem}.txt`);
+        }
+
+        const imageBase64 = fs.readFileSync(imgPath).toString('base64');
+        const imageDataUrl = `data:${mime};base64,${imageBase64}`;
+        const envKey = `IMAGE_URL_${stem.toUpperCase()}`;
+        const imageUrl = process.env[envKey] ?? null;
+
+        const groundTruth = fs.readFileSync(txtPath, 'utf8')
+            .split(/\r?\n/)
+            .map(l => l.trim())
+            .filter(Boolean)
+            .map(n => n.toLowerCase());
+
+        return { name: stem, mime, imageBase64, imageDataUrl, imageUrl, groundTruth };
+    });
 }
+
+const TESTS = loadTests();
+
+// Warn about missing image URLs
+TESTS.forEach((test) => {
+    if (!test.imageUrl) {
+        const envKey = `IMAGE_URL_${test.name.toUpperCase()}`;
+        console.warn(`⚠  ${envKey} not set in .env — URL-based providers will skip test "${test.name}".`);
+    }
+});
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -109,7 +148,7 @@ function fetchWithTimeout(url, options) {
 
 // ─── Provider Adapters ────────────────────────────────────────────────────────
 
-async function callOpenRouter(model) {
+async function callOpenRouter(model, test) {
     const t0 = Date.now();
     const res = await fetchWithTimeout('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
@@ -123,7 +162,7 @@ async function callOpenRouter(model) {
                 role: 'user',
                 content: [
                     { type: 'text', text: PROMPT },
-                    { type: 'image_url', image_url: { url: imageDataUrl } },
+                    { type: 'image_url', image_url: { url: test.imageDataUrl } },
                 ],
             }],
             reasoning: { enabled: false },
@@ -136,7 +175,7 @@ async function callOpenRouter(model) {
     return { text, responseTimeMs, apiError };
 }
 
-async function callGoogleAI(model) {
+async function callGoogleAI(model, test) {
     const t0 = Date.now();
     const res = await fetchWithTimeout(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GOOGLE_AI_STUDIO_KEY}`,
@@ -146,7 +185,7 @@ async function callGoogleAI(model) {
             body: JSON.stringify({
                 contents: [{
                     parts: [
-                        { inlineData: { mimeType: imageMime, data: imageBase64 } },
+                        { inlineData: { mimeType: test.mime, data: test.imageBase64 } },
                         { text: PROMPT },
                     ],
                 }],
@@ -178,7 +217,7 @@ async function cfRequest(model, body) {
     );
 }
 
-async function callCloudflare(model) {
+async function callCloudflare(model, test) {
     const t0 = Date.now();
 
     // Auto-agree to model license on first use
@@ -202,7 +241,7 @@ async function callCloudflare(model) {
         messages: [{
             role: 'user',
             content: [
-                { type: 'image_url', image_url: { url: imageDataUrl } },
+                { type: 'image_url', image_url: { url: test.imageDataUrl } },
                 { type: 'text', text: PROMPT },
             ],
         }],
@@ -220,7 +259,7 @@ async function callCloudflare(model) {
 
 async function callGroq(model, imageSource) {
     if (!imageSource) {
-        return { text: '', responseTimeMs: 0, apiError: 'IMAGE_URL not configured in .env' };
+        return { text: '', responseTimeMs: 0, apiError: 'No image source available for this test' };
     }
     const t0 = Date.now();
     const res = await fetchWithTimeout('https://api.groq.com/openai/v1/chat/completions', {
@@ -249,7 +288,7 @@ async function callGroq(model, imageSource) {
 
 async function callNvidia(model, imageSource) {
     if (!imageSource) {
-        return { text: '', responseTimeMs: 0, apiError: 'IMAGE_URL not configured in .env' };
+        return { text: '', responseTimeMs: 0, apiError: 'No image source available for this test' };
     }
     const t0 = Date.now();
     // NVIDIA supports image_url objects (URL or base64 data URL).
@@ -283,7 +322,7 @@ async function callNvidia(model, imageSource) {
     return { text, responseTimeMs, apiError };
 }
 
-async function callOllamaCloud(model) {
+async function callOllamaCloud(model, test) {
     const t0 = Date.now();
     const res = await fetchWithTimeout('https://ollama.com/api/chat', {
         method: 'POST',
@@ -296,7 +335,7 @@ async function callOllamaCloud(model) {
             messages: [{
                 role: 'user',
                 content: PROMPT,
-                images: [imageBase64],
+                images: [test.imageBase64],
             }],
             stream: false,
         }),
@@ -323,7 +362,7 @@ function parseNames(text) {
         .map(n => n.toLowerCase());
 }
 
-function calcAccuracy(names) {
+function calcAccuracy(names, groundTruth) {
     // Each ground truth name can only be matched once (prevents >100%)
     const remaining = [...groundTruth];
     for (const n of names) {
@@ -341,7 +380,7 @@ if (!fs.existsSync(resultsDir)) fs.mkdirSync(resultsDir);
 
 const timestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
 const csvPath = path.join(resultsDir, `results_${timestamp}.csv`);
-const csvHeader = 'provider,model,attempt,names_found,accuracy_pct,response_time_ms,error\n';
+const csvHeader = 'provider,model,test,attempt,names_found,accuracy_pct,response_time_ms,error\n';
 fs.writeFileSync(csvPath, csvHeader);
 
 function appendCsv(row) {
@@ -350,11 +389,11 @@ function appendCsv(row) {
 
 // ─── Runner ───────────────────────────────────────────────────────────────────
 
-async function runModel(provider, model) {
-    console.log(`\n▶ ${provider.name} | ${model}`);
+async function runModel(provider, model, test) {
+    console.log(`\n▶ ${provider.name} | ${model} | [${test.name}]`);
 
     const tasks = Array.from({ length: ATTEMPTS }, (_, i) =>
-        provider.call(model).then(r => ({ attempt: i + 1, ...r })).catch(err => ({
+        provider.call(model, test).then(r => ({ attempt: i + 1, ...r })).catch(err => ({
             attempt: i + 1,
             text: '',
             responseTimeMs: 0,
@@ -369,12 +408,12 @@ async function runModel(provider, model) {
 
         if (fetchError) {
             console.log(`  Attempt ${attempt}: ERROR — ${fetchError}`);
-            appendCsv(`"${provider.name}","${model}",${attempt},0,0,0,"${fetchError}"`);
+            appendCsv(`"${provider.name}","${model}","${test.name}",${attempt},0,0,0,"${fetchError}"`);
             continue;
         }
 
         const names = parseNames(text);
-        const accuracy = calcAccuracy(names);
+        const accuracy = calcAccuracy(names, test.groundTruth);
 
         if (apiError) {
             console.log(`  Attempt ${attempt}: API ERROR — ${apiError}`);
@@ -382,19 +421,21 @@ async function runModel(provider, model) {
             console.log(`  Attempt ${attempt}: ${accuracy}% accuracy | ${responseTimeMs}ms | found: [${names.join(', ')}]`);
         }
 
-        appendCsv(`"${provider.name}","${model}",${attempt},${names.length},${accuracy},${responseTimeMs},"${errorMsg.replace(/"/g, "'")}"`);
+        appendCsv(`"${provider.name}","${model}","${test.name}",${attempt},${names.length},${accuracy},${responseTimeMs},"${errorMsg.replace(/"/g, "'")}"`);
     }
 }
 
 async function main() {
     console.log('═══════════════════════════════════════════');
     console.log('  AI Model Benchmark — Image Name Recognition');
-    console.log(`  Ground truth: ${groundTruth.length} names`);
+    console.log(`  Tests: ${TESTS.map(t => t.name).join(', ')}`);
     console.log('═══════════════════════════════════════════');
 
     for (const provider of PROVIDERS) {
         for (const model of provider.models) {
-            await runModel(provider, model);
+            for (const test of TESTS) {
+                await runModel(provider, model, test);
+            }
         }
     }
 
