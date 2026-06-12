@@ -65,6 +65,19 @@ const PROVIDERS = [
         ],
         call: (model) => callNvidia(model, process.env.IMAGE_URL),
     },
+    {
+        name: 'Ollama Cloud',
+        models: [
+            'gemma4:31b-cloud',
+            'minimax-m3:cloud',
+            'qwen3-vl:235b-cloud',
+            'qwen3-vl:235b-instruct-cloud',
+            'ministral-3:3b-cloud',
+            'ministral-3:8b-cloud',
+            'ministral-3:14b-cloud'
+        ],
+        call: callOllamaCloud,
+    },
 ];
 
 // ─── Image & Ground Truth ─────────────────────────────────────────────────────
@@ -269,6 +282,31 @@ async function callNvidia(model, imageSource) {
     const data = await res.json();
     const apiError = res.ok ? null : `HTTP ${res.status}: ${data?.detail ?? data?.error?.message ?? JSON.stringify(data?.error ?? data)}`;
     const text = data?.choices?.[0]?.message?.content ?? '';
+    return { text, responseTimeMs, apiError };
+}
+
+async function callOllamaCloud(model) {
+    const t0 = Date.now();
+    const res = await fetchWithTimeout('https://ollama.com/api/chat', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${process.env.OLLAMA_API_KEY}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            model,
+            messages: [{
+                role: 'user',
+                content: PROMPT,
+                images: [imageBase64],
+            }],
+            stream: false,
+        }),
+    });
+    const responseTimeMs = Date.now() - t0;
+    const data = await res.json();
+    const apiError = res.ok ? null : `HTTP ${res.status}: ${data?.error ?? JSON.stringify(data)}`;
+    const text = data?.message?.content ?? '';
     return { text, responseTimeMs, apiError };
 }
 

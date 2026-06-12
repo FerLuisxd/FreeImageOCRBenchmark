@@ -1,0 +1,14 @@
+curl --request post \
+  --url https://ollama.com/api/chat \
+  --header 'authorization: Bearer ' \
+  --header 'content-type: application/json' \
+  --data '{
+  "model": "gemma4:31b",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello"
+    }
+  ],
+  "stream": false
+}'

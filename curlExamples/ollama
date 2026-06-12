@@ -1,0 +1,16 @@
+curl --request POST \
+  --url http://localhost:11434/api/chat \
+  --header 'content-type: application/json' \
+  --data '{
+  "model": "llama3.2-vision",
+  "messages": [
+    {
+      "role": "user",
+      "content": "What is in this image?",
+      "images": [
+        "base64_data_here"
+      ]
+    }
+  ],
+  "stream": false
+}'
