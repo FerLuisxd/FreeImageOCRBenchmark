@@ -6,7 +6,7 @@ import { fileURLToPath } from 'url';
 // ─── Config ──────────────────────────────────────────────────────────────────
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ATTEMPTS = 3;
+const ATTEMPTS = 2;
 const PROMPT = 'Return only the names of the players shown in this image, one per line. No extra text. Do not repeat names';
 
 const PROVIDERS = [
@@ -70,8 +70,6 @@ const PROVIDERS = [
         models: [
             'gemma4:31b-cloud',
             'minimax-m3:cloud',
-            'qwen3-vl:235b-cloud',
-            'qwen3-vl:235b-instruct-cloud',
             'ministral-3:3b-cloud',
             'ministral-3:8b-cloud',
             'ministral-3:14b-cloud'
