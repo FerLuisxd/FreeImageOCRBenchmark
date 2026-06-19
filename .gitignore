@@ -2,3 +2,6 @@
 /node_modules
 /results
 /curlExamples/base64
+/latency_results
+/local_models.json
+/vision_models.txt

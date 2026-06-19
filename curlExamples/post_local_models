@@ -1,0 +1,18 @@
+curl --request POST \
+  --url http://localhost:20128/api/v1/chat/completions \
+  --header 'authorization: Bearer ' \
+  --header 'content-type: application/json' \
+  --data '{
+  "model": "oc/deepseek-v4-flash-free",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "What is in this image?"
+        }
+      ]
+    }
+  ]
+}'
