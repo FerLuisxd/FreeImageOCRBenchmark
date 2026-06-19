@@ -18,7 +18,8 @@ function buildFilter(str) {
 }
 
 const MODEL_FILTER = buildFilter(MODEL_INPUT);
-const PROMPT = "2+2 (return just the number, no explanation)";
+const PROMPT = "51324214123 + 3213131232 (return just the number, no explanation)";
+const EXPECTED_ANSWER = "54537345355";
 const TRIES = 2;
 const RESULTS_DIR = path.join("latency_results");
 
@@ -49,14 +50,66 @@ async function ask(model) {
         headers,
         body: JSON.stringify({
             model,
-            stream: false,
+            stream: true,
+            stream_options: { include_usage: true }, // ask server to include usage in final chunk
             messages: [{ role: "user", content: PROMPT }],
         }),
     });
-    const latency = Date.now() - start;
-    const json = await res.json();
-    const answer = json.choices?.[0]?.message?.content?.trim() ?? "";
-    return { answer, latency };
+
+    // --- Parse the SSE stream ---
+    let ttftMs = null;          // time to first token
+    let answer = "";
+    let chunkCount = 0;         // fallback completion-token counter
+    let usage = null;
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop(); // keep incomplete last line
+
+        for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("data:")) continue;
+            const data = trimmed.slice(5).trim();
+            if (data === "[DONE]") break outer;
+
+            let chunk;
+            try { chunk = JSON.parse(data); } catch { continue; }
+
+            // Capture usage from the final chunk (stream_options: include_usage)
+            if (chunk.usage) usage = chunk.usage;
+
+            const delta = chunk.choices?.[0]?.delta?.content;
+            if (delta) {
+                if (ttftMs === null) ttftMs = Date.now() - start; // first token!
+                answer += delta;
+                chunkCount++;
+            }
+        }
+    }
+
+    const latencyMs = Date.now() - start;
+    answer = answer.trim();
+
+    // Extract token counts — prefer server-reported usage, fall back to chunk count
+    const promptTokens = usage?.prompt_tokens ?? usage?.input_tokens ?? null;
+    const completionTokens = usage?.completion_tokens ?? usage?.output_tokens ?? chunkCount;
+    const totalTokens = usage?.total_tokens ?? null;
+
+    // Tokens per second based on total latency
+    const tokensPerSec =
+        completionTokens != null && latencyMs > 0
+            ? (completionTokens / (latencyMs / 1000)).toFixed(2)
+            : null;
+
+    return { answer, latencyMs, ttftMs, promptTokens, completionTokens, totalTokens, tokensPerSec };
 }
 
 async function main() {
@@ -72,17 +125,24 @@ async function main() {
 
     console.log(`Found ${matched.length} matching model(s):`, matched);
 
-    let csvContent = "Model,Try,Latency,Answer\n";
+    let csvContent = "Model,Try,Latency_ms,TTFT_ms,PromptTokens,CompletionTokens,TotalTokens,Tokens_per_sec,Answer\n";
 
     for (const model of matched) {
         for (let i = 1; i <= TRIES; i++) {
-            const { answer, latency } = await ask(model);
-            const correct = answer === "4";
+            const { answer, latencyMs, ttftMs, promptTokens, completionTokens, totalTokens, tokensPerSec } = await ask(model);
+            const correct = answer === EXPECTED_ANSWER;
+
+            const tpsLabel = tokensPerSec != null ? `${tokensPerSec} tok/s` : "n/a tok/s";
+            const ttftLabel = ttftMs != null ? `TTFT ${ttftMs}ms` : "TTFT n/a";
+            const tokenLabel = completionTokens != null
+                ? `(${promptTokens ?? "?"} prompt + ${completionTokens} completion = ${totalTokens ?? "?"} total)`
+                : "(tokens: n/a)";
+
             if (correct) {
-                console.log(`[${model}] Try ${i}: ✅ "${answer}" — ${latency}ms`);
-                csvContent += `"${model}",${i},${latency},"${answer.replace(/"/g, '""')}"\n`;
+                console.log(`[${model}] Try ${i}: ✅ "${answer}" — total ${latencyMs}ms | ${ttftLabel} | ${tpsLabel} ${tokenLabel}`);
+                csvContent += `"${model}",${i},${latencyMs},${ttftMs ?? ""},${promptTokens ?? ""},${completionTokens ?? ""},${totalTokens ?? ""},${tokensPerSec ?? ""},"${answer.replace(/"/g, '""')}"\n`;
             } else {
-                console.log(`[${model}] Try ${i}: ❌ "${answer}" (skipped, not 4)`);
+                console.log(`[${model}] Try ${i}: ❌ "${answer}" (skipped, not ${EXPECTED_ANSWER}) — total ${latencyMs}ms | ${ttftLabel} | ${tpsLabel} ${tokenLabel}`);
             }
         }
     }
